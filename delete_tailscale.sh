@@ -3,7 +3,7 @@
 set -u
 umask 077
 
-VERSION=1.0.3
+VERSION=1.0.4
 YES=0
 REBOOT=0
 COLOR=auto
@@ -312,7 +312,7 @@ fi
 printf '%s  ✓ УДАЛЕНИЕ ЗАВЕРШЕНО%s\n\n' "$GREEN" "$RESET"
 if [ "$REBOOT" != 1 ] && [ -t 0 ]; then
     while :; do
-        printf 'Перезагрузить роутер? [Y/n]: '
+        printf 'Перезагрузить роутер? [y/n] (по умолчанию y): '
         if ! read -r reboot_answer; then
             info 'Ввод недоступен. Перезагрузка не выполняется.'
             break
@@ -325,8 +325,7 @@ if [ "$REBOOT" != 1 ] && [ -t 0 ]; then
     done
 fi
 if [ "$REBOOT" = 1 ]; then
-    warn 'Перезагрузка через 5 секунд…'
-    sleep 5
+    info 'Перезагрузка…'
     reboot || { error 'Не удалось выполнить перезагрузку.'; exit 1; }
 else
     info 'Перезагрузка не выполняется.'
