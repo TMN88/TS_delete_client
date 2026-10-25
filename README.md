@@ -10,13 +10,15 @@
 wget -O /tmp/delete_tailscale.sh https://raw.githubusercontent.com/TMN88/TS_delete_client/main/delete_tailscale.sh && sh /tmp/delete_tailscale.sh
 ```
 
-Скрипт запросит слово `DELETE`. Без дополнительного вопроса:
+Скрипт запросит слово `DELETE`. Пропустить подтверждение удаления:
 
 ```sh
 wget -O /tmp/delete_tailscale.sh https://raw.githubusercontent.com/TMN88/TS_delete_client/main/delete_tailscale.sh && sh /tmp/delete_tailscale.sh --yes
 ```
 
-Перезагрузка после успешного удаления и проверки:
+После успешного удаления в интерактивном терминале скрипт предложит **«Перезагрузить роутер? [Y/n]»**. **Enter — да**, `n` — нет. Ответы `да` и `нет` тоже поддерживаются. Перезагрузка выполняется через 5 секунд. Флаг `--yes` пропускает только подтверждение удаления, но не вопрос о перезагрузке. Без интерактивного терминала или при обрыве ввода перезагрузка не выполняется.
+
+Для перезагрузки после успешного удаления без вопроса:
 
 ```sh
 sh /tmp/delete_tailscale.sh --yes --reboot
