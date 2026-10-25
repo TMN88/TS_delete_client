@@ -3,7 +3,7 @@
 set -u
 umask 077
 
-VERSION=1.0.1
+VERSION=1.0.2
 YES=0
 REBOOT=0
 COLOR=auto
@@ -15,6 +15,7 @@ UCI_RESULT=0
 NETWORK=0
 INTERFACE=0
 STARTUP=0
+CRON_RESULT=0
 NETWORK_CHANGED=0
 FIREWALL_CHANGED=0
 PKG_LOG=
@@ -25,7 +26,7 @@ usage() {
         '  --yes       Удалить без интерактивного подтверждения.' \
         '  --reboot    Перезагрузить только после успешной проверки.' \
         '  --no-color  Отключить ANSI-цвета.' \
-        '  --color     Включить неоновые ANSI-цвета принудительно.' \
+        '  --color     Включить неоновые ANSI-цвета итогового отчёта.' \
         '  --help      Показать справку.'
 }
 
@@ -40,28 +41,27 @@ for arg in "$@"; do
     esac
 done
 
-CYAN= MAGENTA= GREEN= RED= YELLOW= RESET=
+MAGENTA= GREEN= RED= RESET=
 if [ "$COLOR" = on ] || { [ "$COLOR" = auto ] && [ -t 1 ] && [ "${TERM:-dumb}" != dumb ] && [ -z "${NO_COLOR:-}" ]; }; then
-    CYAN=$(printf '\033[1;96m')
     MAGENTA=$(printf '\033[1;95m')
     GREEN=$(printf '\033[1;92m')
     RED=$(printf '\033[1;91m')
-    YELLOW=$(printf '\033[1;93m')
     RESET=$(printf '\033[0m')
 fi
 
-info() { printf '%s  › %s%s\n' "$CYAN" "$*" "$RESET"; }
-warn() { printf '%s  ! %s%s\n' "$YELLOW" "$*" "$RESET"; }
-error() { printf '%s  ✗ %s%s\n' "$RED" "$*" "$RESET" >&2; FAIL=1; }
+info() { printf '  › %s\n' "$*"; }
+warn() { printf '  ! %s\n' "$*"; }
+error() { printf '  ✗ %s\n' "$*" >&2; FAIL=1; }
+result_error() { printf '%s  ✗ %s%s\n' "$RED" "$*" "$RESET" >&2; FAIL=1; }
 exists() { [ -e "$1" ] || [ -L "$1" ]; }
 cleanup() { [ -z "$PKG_LOG" ] || rm -f "$PKG_LOG"; }
 trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
-printf '\n%s╔══════════════════════════════════════════╗%s\n' "$MAGENTA" "$RESET"
-printf '%s║           TS DELETE CLIENT               ║%s\n' "$CYAN" "$RESET"
-printf '%s╚══════════════════════════════════════════╝%s\n' "$MAGENTA" "$RESET"
+printf '\n╔══════════════════════════════════════════╗\n'
+printf '║           TS DELETE CLIENT               ║\n'
+printf '╚══════════════════════════════════════════╝\n'
 info "Версия $VERSION · OpenWrt"
 
 [ "$(id -u)" = 0 ] || { error 'Запусти скрипт от root.'; exit 2; }
@@ -95,6 +95,23 @@ fi
 PKG_LOG=$(mktemp /tmp/ts-delete.XXXXXX) || { error 'Не удалось создать временный журнал.'; exit 2; }
 
 info '[1/7] Остановка службы и автозапуска'
+# Remove only the exact watcher reported by Zapret Manager. Keep other cron jobs.
+WATCHER_MATCH='($1 == "*" && $2 == "*" && $3 == "*" && $4 == "*" && $5 == "*" && $6 == "/opt/zapret-manager-luci/backend.sh" && $7 == "tsc_watch" && $8 == ">/dev/null" && $9 == "2>&1" && $10 == "#" && $11 == "zm-tailscale" && NF == 11)'
+if [ -f /etc/crontabs/root ] && awk "$WATCHER_MATCH { found=1 } END { exit !found }" /etc/crontabs/root; then
+    info 'Удаляю задание cron zm-tailscale (Zapret Manager: tsc_watch).'
+    if ! command -v crontab >/dev/null 2>&1; then
+        error 'Не найдена команда crontab. Остановка и удаление отменены.'; exit 1
+    fi
+    if ! awk "!$WATCHER_MATCH" /etc/crontabs/root >"$PKG_LOG"; then
+        error 'Не удалось подготовить cron без tsc_watch. Удаление отменено.'; exit 1
+    fi
+    if ! crontab "$PKG_LOG"; then
+        error 'Не удалось сохранить cron. Остановка и удаление отменены.'; exit 1
+    fi
+    if awk "$WATCHER_MATCH { found=1 } END { exit !found }" /etc/crontabs/root; then
+        error 'Задание tsc_watch осталось в cron. Остановка и удаление отменены.'; exit 1
+    fi
+fi
 for svc in /etc/init.d/tailscale /etc/init.d/tailscaled; do
     if [ -x "$svc" ]; then
         "$svc" disable >/dev/null 2>&1 || warn "Не удалось отключить $svc; проверю оставшиеся ссылки автозапуска."
@@ -142,7 +159,7 @@ if pidof tailscaled >/dev/null 2>&1; then
         fi
     done
     printf '\n%s════════════ РЕЗУЛЬТАТ ════════════%s\n' "$MAGENTA" "$RESET"
-    error 'Служба не остановлена; пакеты, настройки UCI и файлы не удалялись.'
+    result_error 'Служба не остановлена; пакеты, настройки UCI и файлы не удалялись.'
     warn 'Автозапуск службы уже отключён. Перезагрузка не выполняется.'
     exit 1
 fi
@@ -283,9 +300,13 @@ row "$FILES" 'Файлы, конфигурация и ключи состоян�
 row "$UCI_RESULT" 'Секции network.tailscale и firewall.tailscale удалены / отсутствуют' 'Ошибка удаления настроек UCI'
 row "$NETWORK" 'Изменения сети применены / не требовались' 'Ошибка применения сети'
 row "$INTERFACE" 'Интерфейс tailscale0 отсутствует' 'Интерфейс tailscale0 остался'
+if [ -f /etc/crontabs/root ] && awk "$WATCHER_MATCH { found=1 } END { exit !found }" /etc/crontabs/root; then
+    CRON_RESULT=1; FAIL=1
+fi
+row "$CRON_RESULT" 'Задание cron zm-tailscale (tsc_watch) удалено / отсутствует' 'Задание cron zm-tailscale осталось'
 row "$STARTUP" 'Ссылки на Tailscale в проверенном ручном автозапуске не найдены' 'Остались ссылки в ручном автозапуске — см. пути выше'
 if [ "$FAIL" != 0 ]; then
-    error 'Удаление завершено с ошибками. Автоматическая перезагрузка отменена.'
+    result_error 'Удаление завершено с ошибками. Автоматическая перезагрузка отменена.'
     exit 1
 fi
 printf '%s  ✓ УДАЛЕНИЕ ЗАВЕРШЕНО%s\n\n' "$GREEN" "$RESET"
