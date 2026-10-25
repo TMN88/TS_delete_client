@@ -3,7 +3,7 @@
 set -u
 umask 077
 
-VERSION=1.0.0
+VERSION=1.0.1
 YES=0
 REBOOT=0
 COLOR=auto
@@ -106,12 +106,44 @@ fi
 for svc in /etc/init.d/tailscale /etc/init.d/tailscaled; do
     if [ -x "$svc" ]; then "$svc" stop >/dev/null 2>&1 || true; fi
 done
+# Unregister only the two Tailscale service names, preventing procd respawn.
+if command -v ubus >/dev/null 2>&1; then
+    ubus call service delete '{"name":"tailscale"}' >/dev/null 2>&1 || true
+    ubus call service delete '{"name":"tailscaled"}' >/dev/null 2>&1 || true
+fi
+wait_stopped() {
+    remaining=$1
+    while pidof tailscaled >/dev/null 2>&1; do
+        [ "$remaining" -gt 0 ] || return 1
+        sleep 1
+        remaining=$((remaining - 1))
+    done
+    return 0
+}
 if pidof tailscaled >/dev/null 2>&1; then
-    killall tailscaled >/dev/null 2>&1 || true
-    sleep 2
+    info 'Ожидаю завершения tailscaled после остановки службы (до 10 секунд)…'
+    if ! wait_stopped 10; then
+        warn 'Отправляю tailscaled SIGTERM и жду до 5 секунд.'
+        killall -TERM tailscaled >/dev/null 2>&1 || true
+        if ! wait_stopped 5; then
+            warn 'Процесс не завершился: отправляю SIGKILL и жду до 5 секунд.'
+            killall -KILL tailscaled >/dev/null 2>&1 || true
+            wait_stopped 5 || true
+        fi
+    fi
 fi
 if pidof tailscaled >/dev/null 2>&1; then
     SERVICE=1; error 'Процесс tailscaled не остановлен. Удаление файлов отменено.'
+    warn "Оставшиеся PID: $(pidof tailscaled 2>/dev/null)"
+    for proc_id in $(pidof tailscaled 2>/dev/null); do
+        case "$proc_id" in ''|*[!0-9]*) continue ;; esac
+        if [ -r "/proc/$proc_id/status" ]; then
+            awk '/^(Name|State|PPid):/ {print}' "/proc/$proc_id/status"
+        fi
+    done
+    printf '\n%s════════════ РЕЗУЛЬТАТ ════════════%s\n' "$MAGENTA" "$RESET"
+    error 'Служба не остановлена; пакеты, настройки UCI и файлы не удалялись.'
+    warn 'Автозапуск службы уже отключён. Перезагрузка не выполняется.'
     exit 1
 fi
 
