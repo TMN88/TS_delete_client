@@ -3,7 +3,7 @@
 set -u
 umask 077
 
-VERSION=1.0.2
+VERSION=1.0.3
 YES=0
 REBOOT=0
 COLOR=auto
@@ -310,11 +310,26 @@ if [ "$FAIL" != 0 ]; then
     exit 1
 fi
 printf '%s  ✓ УДАЛЕНИЕ ЗАВЕРШЕНО%s\n\n' "$GREEN" "$RESET"
+if [ "$REBOOT" != 1 ] && [ -t 0 ]; then
+    while :; do
+        printf 'Перезагрузить роутер? [Y/n]: '
+        if ! read -r reboot_answer; then
+            info 'Ввод недоступен. Перезагрузка не выполняется.'
+            break
+        fi
+        case "$reboot_answer" in
+            ''|y|Y|yes|YES|Yes|д|Д|да|Да|ДА) REBOOT=1; break ;;
+            n|N|no|NO|No|н|Н|нет|Нет|НЕТ) break ;;
+            *) info 'Нажми Enter для перезагрузки или введи n для отказа.' ;;
+        esac
+    done
+fi
 if [ "$REBOOT" = 1 ]; then
     warn 'Перезагрузка через 5 секунд…'
     sleep 5
     reboot || { error 'Не удалось выполнить перезагрузку.'; exit 1; }
 else
+    info 'Перезагрузка не выполняется.'
     info 'Для проверки после перезагрузки: reboot'
     info 'После загрузки: ip link show tailscale0'
     info 'Ожидаемый результат: Device "tailscale0" does not exist.'
