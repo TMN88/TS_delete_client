@@ -1,6 +1,6 @@
-# TS_delete_client
+# TS_delete_client / OpenWrt component remover
 
-Удаление клиента Tailscale с OpenWrt по инструкции «удаление ТС.txt». POSIX sh / BusyBox ash, пакетные менеджеры `apk` и `opkg`.
+Удаление Tailscale и выбранных компонентов из Install Packets Script 2.0.4. Скрипт работает в POSIX sh / BusyBox ash с `apk` и `opkg`. Без `--component` показывает меню выбора.
 
 ## Запуск
 
@@ -10,13 +10,35 @@
 wget -O /tmp/delete_tailscale.sh https://raw.githubusercontent.com/TMN88/TS_delete_client/main/delete_tailscale.sh && sh /tmp/delete_tailscale.sh
 ```
 
+Команда выше покажет меню. Чтобы выбрать компонент сразу, укажи его явно. Например, Podkop:
+
+```sh
+wget -O /tmp/delete_tailscale.sh https://raw.githubusercontent.com/TMN88/TS_delete_client/main/delete_tailscale.sh && sh /tmp/delete_tailscale.sh --component podkop
+```
+
+В меню доступны `podkop`, `forkop`, `awg`, `zapret-manager`, `zapret2`, `vpn-failover`, `site-checker` (`site-checker2`), `watchdog` (`youtube-watchdog`) и `themes`. Терминал `ttyd`, USB-модули и SFTP-сервер в меню не добавлены. Прежнее удаление Tailscale сохранено отдельно: `--component tailscale`.
+
 Скрипт запросит слово `DELETE`. Пропустить подтверждение удаления:
 
 ```sh
 wget -O /tmp/delete_tailscale.sh https://raw.githubusercontent.com/TMN88/TS_delete_client/main/delete_tailscale.sh && sh /tmp/delete_tailscale.sh --yes
 ```
 
-После успешного удаления в интерактивном терминале скрипт предложит **«Перезагрузить роутер? [y/n] (по умолчанию y)»**. **Enter — да**, `n` — нет. Ответы `да` и `нет` тоже поддерживаются. После подтверждения перезагрузка выполняется сразу, без задержки. Флаг `--yes` пропускает только подтверждение удаления, но не вопрос о перезагрузке. Без интерактивного терминала или при обрыве ввода перезагрузка не выполняется.
+Для выбранного компонента:
+
+```sh
+sh /tmp/delete_tailscale.sh --component podkop --yes
+```
+
+Команда с выбором компонента в меню и параметрами `--yes --color`:
+
+```sh
+wget -O /tmp/delete_tailscale.sh https://raw.githubusercontent.com/TMN88/TS_delete_client/main/delete_tailscale.sh && sh /tmp/delete_tailscale.sh --yes --color
+```
+
+Для автоматизации компонент можно указать через `--component`; тогда флаг `--yes` пропускает подтверждение удаления. Если компонент не указан, меню выбора остаётся обязательным даже с `--yes`.
+
+После успешного удаления Tailscale в интерактивном терминале скрипт предложит **«Перезагрузить роутер? [y/n] (по умолчанию y)»**. **Enter — да**, `n` — нет. Ответы `да` и `нет` тоже поддерживаются. После подтверждения перезагрузка выполняется сразу, без задержки. Для других компонентов перезагрузка выполняется только при явном флаге `--reboot`.
 
 Для перезагрузки после успешного удаления без вопроса:
 
@@ -24,7 +46,20 @@ wget -O /tmp/delete_tailscale.sh https://raw.githubusercontent.com/TMN88/TS_dele
 sh /tmp/delete_tailscale.sh --yes --reboot
 ```
 
-## Что удаляется
+## Удаление выбранного компонента
+
+- **Podkop:** сначала удаляются `luci-i18n-podkop-ru` и `luci-app-podkop`, затем `podkop`. Это исправляет отказ `opkg`, когда LuCI-пакет ещё зависит от основного пакета. Зависимости принудительно не удаляются.
+- **Forkop:** удаляются `luci-app-forkop` и `forkop`, если они установлены.
+- **AmneziaWG:** удаляются известные пакеты `luci-i18n-amneziawg-ru`, `luci-proto-amneziawg`, `luci-app-amneziawg`, `amneziawg-tools`, `kmod-amneziawg`. Секции интерфейсов UCI не стираются.
+- **Zapret2 Routerich:** удаляются `luci-i18n-zapret2-ru`, `luci-app-zapret2`, `zapret2`.
+- **Zapret Manager:** вызывается его штатный метод удаления панели. Движки, установленные отдельно, не запрашиваются к удалению.
+- **VPN Failover:** останавливается и выключается служба, удаляются принадлежащие ему исполняемые файлы и страница LuCI. Конфигурация `/etc/config/vpn_failover` и общий `luci-app-commands` сохраняются.
+- **Site Checker 2.0** и **YouTube Watchdog:** вызываются их штатные деинсталляторы. Site Checker сохраняет собственную конфигурацию; Watchdog удаляет свою конфигурацию и файлы по своему штатному сценарию.
+- **Темы LuCI:** удаляются пакеты Footstrap, Argon, Aurora и старое приложение настройки Argon. Если активна одна из этих тем, LuCI переключается на штатный Bootstrap перед удалением.
+
+Пакеты удаляются только штатным пакетным менеджером, без `--force-depends` и принудительного удаления зависимостей. Неизвестные пакеты и общие библиотеки скрипт не подбирает автоматически. `--reboot` перезагружает роутер после успешного удаления выбранного компонента.
+
+## Удаление Tailscale
 
 1. Останавливается Tailscale, отключается служба и её автозапуск. Регистрации `tailscale` и `tailscaled` снимаются с procd через ubus, чтобы исключить перезапуск этим супервизором. Скрипт ждёт завершения до 10 секунд, затем при необходимости отправляет SIGTERM (ожидание до 5 секунд) и SIGKILL (ещё до 5 секунд). Если процесс остаётся, дальнейшее удаление отменяется; выводятся PID и доступные поля Name/State/PPid без командной строки и ключей.
    Перед остановкой удаляется только точное задание cron `* * * * * /opt/zapret-manager-luci/backend.sh tsc_watch >/dev/null 2>&1 # zm-tailscale`, если оно есть. Остальные строки сохраняются. Используется команда `crontab`, которая уведомляет планировщик об изменении; при ошибке сохранения дальнейшее удаление отменяется.
@@ -74,6 +109,7 @@ ip link show tailscale0
 
 ## Проверка разработки
 
-Версия 1.0.1 исправляет слишком короткое ожидание остановки процесса в версии 1.0.0. Синтаксис проверяется POSIX shell. Сценарии с подставными командами и временной файловой системой проверяют удаление через apk/opkg, повторный запуск, ошибки пакета/файлов/UCI/firewall, остатки автозапуска, условия перезагрузки, медленное завершение процесса, необходимость SIGKILL и снятие регистрации procd. На настоящем роутере скрипт при разработке не запускался.
+Версия 1.1.0 добавляет выбор компонентов и порядок удаления зависимых пакетов Podkop. POSIX-shell синтаксис и сценарии с подставными командами проверяют apk/opkg, выбор из меню, удаление Podkop в правильном порядке, повторный запуск, ошибки пакетов/файлов/UCI/firewall, остатки автозапуска и условия перезагрузки. На настоящем роутере новая версия не запускалась.
 
 Источники: пользовательский файл «удаление ТС.txt»; [OpenWrt: Tailscale](https://openwrt.org/docs/guide-user/services/vpn/tailscale/start); [Tailscale: удаление](https://tailscale.com/docs/features/client/uninstall).
+
