@@ -147,7 +147,7 @@ pkg_installed() {
 remove_package() {
     pkg=$1
     case "$pkg" in
-        tailscale|tailscaled|luci-app-tailscale*|luci-i18n-tailscale*)
+        tailscale*|luci-app-tailscale*|luci-i18n-tailscale*)
             error "Защитный запрет: пакет Tailscale нельзя удалять этим скриптом: $pkg"
             return 1 ;;
     esac
