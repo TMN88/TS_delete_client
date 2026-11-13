@@ -3,7 +3,7 @@
 set -u
 umask 077
 
-VERSION=1.2.0
+VERSION=1.2.1
 YES=0
 REBOOT=0
 COLOR=auto
