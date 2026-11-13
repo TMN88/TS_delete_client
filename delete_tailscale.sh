@@ -272,4 +272,3 @@ case "$COMPONENT" in
         reboot || { error 'Не удалось выполнить перезагрузку.'; exit 1; }
     fi
 exit 0
-
